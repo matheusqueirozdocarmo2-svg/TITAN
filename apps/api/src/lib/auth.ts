@@ -1,0 +1,4 @@
+import type {Request,Response,NextFunction} from 'express';import {verifyToken,adminDb} from './supabase.js';
+export type AuthRequest=Request & {userId?:string;role?:'leader'|'seller'};
+export async function authenticate(req:AuthRequest,res:Response,next:NextFunction){try{const header=req.headers.authorization||'';if(!header.startsWith('Bearer '))return res.status(401).json({error:'Token ausente'});const user=await verifyToken(header.slice(7));req.userId=user.id;const {data,error}=await adminDb().from('profiles').select('role').eq('id',user.id).single();if(error||!data)return res.status(403).json({error:'Perfil não cadastrado'});req.role=data.role;next()}catch{return res.status(401).json({error:'Sessão inválida'})}}
+export function leaderOnly(req:AuthRequest,res:Response,next:NextFunction){if(req.role!=='leader')return res.status(403).json({error:'Acesso exclusivo do líder'});next()}

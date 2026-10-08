@@ -1,0 +1,2 @@
+export interface WhatsappGroup {id:string;name:string;pictureUrl?:string;archived?:boolean}
+export interface WhatsappProvider {readonly id:string;getStatus(session:string):Promise<'connected'|'disconnected'|'unconfigured'>;listGroups(session:string):Promise<WhatsappGroup[]>;sendText(session:string,to:string,text:string):Promise<{messageId:string}>;sendImage(session:string,to:string,imageUrl:string,caption?:string):Promise<{messageId:string}>}

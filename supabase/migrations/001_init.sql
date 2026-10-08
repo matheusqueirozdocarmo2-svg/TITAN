@@ -1,0 +1,30 @@
+-- TITAN CRM 360. Executar no SQL Editor do projeto Supabase novo.
+create extension if not exists pgcrypto;
+create type public.user_role as enum ('leader','seller');
+create type public.lead_kind as enum ('PF','PJ');
+create type public.pipeline_stage as enum ('new','contacted','interested','negotiation','won','lost');
+create table public.profiles(id uuid primary key references auth.users(id) on delete cascade,full_name text not null default '',role public.user_role not null default 'seller',created_at timestamptz not null default now());
+create table public.leads(id uuid primary key default gen_random_uuid(),name text not null,kind public.lead_kind not null default 'PF',email text,cpf_cnpj text,city text,address text,interest text,source text,stage public.pipeline_stage not null default 'new',owner_id uuid not null references public.profiles(id),created_at timestamptz not null default now(),updated_at timestamptz not null default now());
+create table public.lead_phones(id uuid primary key default gen_random_uuid(),lead_id uuid not null references public.leads(id) on delete cascade,phone text not null unique,is_primary boolean not null default true,created_at timestamptz not null default now());
+create table public.lead_interactions(id uuid primary key default gen_random_uuid(),lead_id uuid not null references public.leads(id) on delete cascade,user_id uuid references public.profiles(id),channel text not null default 'whatsapp',notes text not null,created_at timestamptz not null default now());
+create table public.opportunities(id uuid primary key default gen_random_uuid(),lead_id uuid not null references public.leads(id) on delete cascade,owner_id uuid not null references public.profiles(id),product text not null,stage public.pipeline_stage not null default 'new',amount numeric(12,2) not null default 0,created_at timestamptz not null default now(),closed_at timestamptz);
+create table public.tasks(id uuid primary key default gen_random_uuid(),lead_id uuid references public.leads(id) on delete cascade,owner_id uuid not null references public.profiles(id),title text not null,due_at timestamptz,done boolean not null default false,created_at timestamptz not null default now());
+create table public.products(id uuid primary key default gen_random_uuid(),name text not null,category text not null,active boolean not null default true);
+create table public.whatsapp_connections(id uuid primary key default gen_random_uuid(),provider text not null,session_name text not null unique,status text not null default 'disconnected',created_by uuid references public.profiles(id),created_at timestamptz not null default now());
+create table public.whatsapp_groups(id text primary key,connection_id uuid not null references public.whatsapp_connections(id) on delete cascade,name text not null,picture_url text,archived boolean,authorized boolean not null default false,synced_at timestamptz not null default now());
+create table public.campaigns(id uuid primary key default gen_random_uuid(),name text not null,content text not null,image_path text,scheduled_at timestamptz,status text not null default 'draft',created_by uuid not null references public.profiles(id),approved_by uuid references public.profiles(id),created_at timestamptz not null default now());
+create table public.campaign_targets(id uuid primary key default gen_random_uuid(),campaign_id uuid not null references public.campaigns(id) on delete cascade,group_id text not null references public.whatsapp_groups(id),unique(campaign_id,group_id));
+create table public.campaign_deliveries(id uuid primary key default gen_random_uuid(),campaign_id uuid not null references public.campaigns(id) on delete cascade,target_id uuid not null references public.campaign_targets(id),status text not null default 'pending',provider_message_id text,error text,created_at timestamptz not null default now(),unique(campaign_id,target_id));
+create table public.sales_goals(id uuid primary key default gen_random_uuid(),owner_id uuid references public.profiles(id),month date not null,category text not null,target numeric(12,2) not null);
+create table public.audit_logs(id bigint generated always as identity primary key,actor_id uuid references public.profiles(id),action text not null,entity_type text not null,entity_id text,payload jsonb,created_at timestamptz not null default now());
+create index leads_owner_idx on public.leads(owner_id,created_at desc);create index leads_stage_idx on public.leads(stage);create index tasks_owner_due_idx on public.tasks(owner_id,due_at);create index opp_stage_idx on public.opportunities(stage);create index groups_conn_idx on public.whatsapp_groups(connection_id);
+create or replace function public.set_updated_at() returns trigger language plpgsql as $$begin new.updated_at=now();return new;end$$;
+create trigger leads_update before update on public.leads for each row execute function public.set_updated_at();
+create or replace function public.bootstrap_profile() returns trigger language plpgsql security definer set search_path='' as $$begin insert into public.profiles(id,full_name) values(new.id,coalesce(new.raw_user_meta_data->>'full_name',''));return new;end$$;
+create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.bootstrap_profile();
+-- Segurança: clientes devem chamar a API; a API verifica JWT e perfil. Dados expostos somente por service role no servidor.
+do $$declare t text;begin foreach t in array array['profiles','leads','lead_phones','lead_interactions','opportunities','tasks','products','whatsapp_connections','whatsapp_groups','campaigns','campaign_targets','campaign_deliveries','sales_goals','audit_logs'] loop execute format('alter table public.%I enable row level security',t);end loop;end$$;
+-- Apenas perfil próprio diretamente via cliente; demais tabelas sem políticas client-side.
+create policy "self profile read" on public.profiles for select to authenticated using (id=auth.uid());
+-- Após criar a conta do líder via Supabase Auth, promover explicitamente:
+-- update public.profiles set role='leader' where id='UUID-DO-LIDER';
