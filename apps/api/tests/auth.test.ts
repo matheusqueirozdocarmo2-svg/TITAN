@@ -1,9 +1,6 @@
 import {describe,it,expect,vi,beforeEach} from 'vitest';
 import type {Response,NextFunction} from 'express';
-const verifyToken=vi.fn();
-const single=vi.fn();
-const eq=vi.fn(()=>({single}));
-const select=vi.fn(()=>({eq}));
+const {verifyToken,single,select}=vi.hoisted(()=>{const verifyToken=vi.fn();const single=vi.fn();const eq=vi.fn(()=>({single}));const select=vi.fn(()=>({eq}));return {verifyToken,single,select}});
 vi.mock('../src/lib/supabase.js',()=>({verifyToken,adminDb:()=>({from:()=>({select})})}));
 import {authenticate,leaderOnly,type AuthRequest} from '../src/lib/auth.js';
 function response(){const r:any={status:vi.fn().mockReturnThis(),json:vi.fn().mockReturnThis()};return r as Response}
